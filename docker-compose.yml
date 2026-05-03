@@ -1,0 +1,83 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: arch_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: archdb
+      POSTGRES_USER: archuser
+      POSTGRES_PASSWORD: archpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U archuser -d archdb" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── FastAPI Backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: arch_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://archuser:archpass@db:5432/archdb
+      SYNC_DATABASE_URL: postgresql://archuser:archpass@db:5432/archdb
+      SECRET_KEY: ${SECRET_KEY:-change-me-in-production-minimum-32-characters}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@archstudio.com}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-AdminPass123!}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
+      APP_ENV: ${APP_ENV:-development}
+      DEBUG: ${DEBUG:-true}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_TO: ${EMAIL_TO:-}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/uploads:/app/uploads
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Next.js Frontend ────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_SITE_URL: http://localhost:3000
+        NEXT_PUBLIC_GA_ID: ${NEXT_PUBLIC_GA_ID:-}
+        NEXT_PUBLIC_MAP_LAT: ${NEXT_PUBLIC_MAP_LAT:-40.7128}
+        NEXT_PUBLIC_MAP_LNG: ${NEXT_PUBLIC_MAP_LNG:--74.0060}
+        NEXT_PUBLIC_COMPANY_NAME: ${NEXT_PUBLIC_COMPANY_NAME:-Arch Studio}
+        NEXT_PUBLIC_COMPANY_EMAIL: ${NEXT_PUBLIC_COMPANY_EMAIL:-hello@archstudio.com}
+        NEXT_PUBLIC_COMPANY_PHONE: ${NEXT_PUBLIC_COMPANY_PHONE:-+1 (555) 000-0000}
+        NEXT_PUBLIC_COMPANY_ADDRESS: ${NEXT_PUBLIC_COMPANY_ADDRESS:-123 Design District, New York, NY 10001}
+    container_name: arch_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+
+volumes:
+  postgres_data:
